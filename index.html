@@ -22,9 +22,20 @@
 
 <div class="container-fluid">
 
-	<input id="width" value="1280">
-	x
-	<input id="height" value="600">
+	<p>
+		Make a
+		<input type="number" id="width" value="1280">
+		x
+		<input type="number" id="height" value="600">
+
+		px large image with
+
+		<input type="number" id="rows" value="3" min="1">
+		rows and
+
+		<input type="number" id="padding" value="5">
+		px spacing, with these selected files:
+	</p>
 
 	<input type="file" multiple id="file">
 
@@ -42,7 +53,7 @@
 
 
 <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
-<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+<script src="bower_components/jquery/dist/jquery.min.js"></script>
 <!-- Include all compiled plugins (below), or include individual files as needed -->
 <script src="bower_components/bootstrap/dist/js/bootstrap.min.js"></script>
 
@@ -61,7 +72,21 @@
 
 	$('#width, #height').change(function () {
 		updateCanvasSize();
-		images.draw();
+
+		if (images) {
+			images.draw();
+		}
+	});
+
+	$('#padding, #rows').change(function () {
+		var $e = $(this);
+
+		setTimeout(function () {
+			if (images) {
+				images.setOption($e.attr('id'), parseInt($e.val(), 10));
+				images.draw();
+			}
+		}, 10);
 	});
 
 	ctx = canvas.getContext('2d');
@@ -80,7 +105,10 @@
 		var reader = new FileReader(),
 				index = 0;
 
-		images = new KollageImages();
+		images = new KollageImages({
+			padding: parseInt($('#padding').val(), 10),
+			rows: parseInt($('#rows').val(), 10)
+		});
 
 		reader.onload = function(event){
 			images.add(event.target.result);
@@ -106,51 +134,99 @@
 		canvas.height = $('#height').val();
 	}
 
-	function KollageImages() {
+	function KollageImages(options) {
 		var images = [];
 //		var lastImageLoaded;
 
 		this.add = function (url) {
 			var img = new KollageImage(url, function () {
 				clearCanvas();
-				img.draw(0, 0, null, canvas.height);
+				img.rect.setSize(null, canvas.height);
+				img.rect.center(canvas.width, canvas.height);
+				img.draw();
 				images.push(img);
 			});
 		};
 
+		this.setOption = function (key, value) {
+			options[key] = value;
+		};
+
 		this.draw = function () {
-			var x, y;
-
-			clearCanvas();
-			
-			$.each(images, function (i, img) {
-				var lastImg = i > 0 ? images[i - 1] : null;
-
-				if (lastImg) {
-					x = lastImg.x() + lastImg.width();
-					y = lastImg.y();
-
-					if (x > canvas.width) {
-						x = 0;
-						y += lastImg.height();
-					}
-
-				} else {
-					x = 0;
-					y = 0;
-				}
-
-				img.draw(
+			var startIndex = 0,
+					lastPlacedImageIndex,
 					x,
 					y,
-					null,
-					canvas.height / 2
-				);
-			});
+					lastImg,
+					rowRects,
+					img,
+					i,
+					row;
 
-			
+			clearCanvas();
+
+			rowLoop:
+			for (row = 0; row < options.rows; row++) {
+				y = lastImg ? lastImg.rect.bottom() + options.padding : 0;
+
+				rowRects = new Rects({
+					padding: options.padding,
+					rows: options.rows,
+					row: row,
+					canvas: canvas,
+					y: y
+				});
+
+				for (i = startIndex; i < images.length; i++) {
+					img = images[i];
+					img.rect.y = y;
+					rowRects.add(img.rect);
+					lastImg = img;
+					lastPlacedImageIndex = i;
+
+					if (rowRects.fitRow()) {
+						startIndex = i + 1;
+						break;
+
+					} else if (i == images.length - 1) {
+						break rowLoop;
+					}
+				}
+			}
 
 
+
+//			console.log(startIndex, images.length - 1);
+//			if (startIndex < images.length - 1) {
+//				alert((images.length - 1 - startIndex) + ' images could not be placed');
+//			}
+
+
+			for (i = 0; i <= lastPlacedImageIndex; i++) {
+				img = images[i];
+//				var lastImg = i > 0 ? images[i - 1] : null;
+//
+//				if (lastImg) {
+//					x = lastImg.rect.x + lastImg.rect.width() + options.padding;
+//					y = lastImg.rect.y;
+//
+//					if (x > canvas.width) {
+//						x = 0;
+//						y += lastImg.rect.height() + options.padding;
+//					}
+//
+//				} else {
+//					x = 0;
+//					y = 0;
+//				}
+
+//				if (i >= startIndex) {
+//					alert('Some images was not fitted, sorry');
+//					return false;
+//				}
+
+				img.draw();
+			}
 		};
 
 		function clearCanvas() {
@@ -166,25 +242,111 @@
 		}
 	}
 
+	function Rects(options) {
+
+		var rects = [],
+				rowsLeft = options.rows - options.row,
+				maxHeight = ((options.canvas.height - options.y) / rowsLeft) * 1.5;
+
+		if (options.y + maxHeight > options.canvas.height) {
+			maxHeight = options.canvas.height - options.y;
+		}
+
+		this.add = function (rect) {
+			rects.push(rect);
+		};
+
+		this.each = each;
+
+		this.fitRow = function () {
+			var rowWidth, newHeight, rowWidthDiff, rowAspect;
+
+			setRectSizes(null, maxHeight);
+
+			lineUp();
+
+			rowWidth = getRowWidth();
+			rowWidthDiff = options.canvas.width - rowWidth;
+
+			if (rowWidthDiff > 0) {
+				return false;
+			}
+
+			// If last row, don't adjust row height. Instead use max height to not leave an empty space.
+			if (rowsLeft > 1) {
+				rowAspect = rowWidth / maxHeight;
+				newHeight = maxHeight + rowWidthDiff / rowAspect;
+
+				each(function (rect) {
+					rect.setSize(null, newHeight);
+				});
+
+				lineUp();
+			}
+
+			return true;
+
+
+
+		}
+
+		function getRowWidth() {
+			return rects[rects.length - 1].right();
+		}
+
+		function setRectSizes() {
+			var args = arguments;
+
+			each(function (rect) {
+				rect.setSize.apply(null, args);
+			});
+		}
+
+		function lineUp() {
+			each(function (rect, prevRect) {
+				rect.x = prevRect ? prevRect.right() + options.padding : 0;
+			});
+		}
+
+		function each(callback) {
+			$.each(rects, function (i, rect) {
+				callback(rect, i > 0 ? rects[i - 1] : null);
+			});
+		}
+
+
+	}
+
 	function KollageImage(url, loadedCallback) {
-		var img = new Image();
-		var _x = 0;
-		var _y = 0;
-		var _width = 0;
-		var _height = 0;
-		var _aspect;
+		var img = new Image(),
+			self = this;
 
 		img.onload = function () {
-			_aspect = img.width / img.height;
+			self.rect = new Rect(img.width, img.height);
 			loadedCallback();
 		};
 
 		img.src = url;
 
-		this.draw = function (x, y, width, height) {
-			_x = x;
-			_y = y;
+		this.draw = function () {
+//			self.rect.x = x;
+//			self.rect.y = y;
 
+//			ctx.drawImage(img, x, y);
+			ctx.drawImage(img, self.rect.x, self.rect.y, self.rect.width(), self.rect.height());
+		}
+	}
+
+	function Rect(width, height) {
+
+		var _width = width;
+		var _height = height;
+		var _aspect = width / height;;
+
+		this.x = 0;
+		this.y = 0;
+
+		this.setSize = function (width, height) {
 			if (!width && height) {
 				width = height * _aspect;
 			}
@@ -200,25 +362,28 @@
 
 			_width = width;
 			_height = height;
-//			ctx.drawImage(img, x, y);
-			ctx.drawImage(img, x, y, _width, _height);
-		}
+		};
 
-		this.x = function () {
-			return _x;
-		}
-
-		this.y = function () {
-			return _y;
-		}
+		this.center = function (containerWidth, containerHeight) {
+			this.x = (containerWidth - _width) / 2;
+			this.y = (containerHeight - _height) / 2;
+		};
 
 		this.width = function () {
 			return _width;
-		}
+		};
 
 		this.height = function () {
 			return _height;
-		}
+		};
+
+		this.right = function () {
+			return this.x + _width;
+		};
+
+		this.bottom = function () {
+			return this.y + _height;
+		};
 	}
 
 
