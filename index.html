@@ -40,6 +40,8 @@
 	<input type="file" multiple id="file">
 
 	<canvas id="canvas"></canvas>
+
+	<button onclick="save()" class="btn btn-primary">Download image</button>
 	<!--
 
 
@@ -127,6 +129,24 @@
 			}
 		}
 
+	}
+
+	function save() {
+		//take apart data URL
+		var parts = canvas.toDataURL().match(/data:([^;]*)(;base64)?,([0-9A-Za-z+/]+)/);
+
+		//assume base64 encoding
+		var binStr = atob(parts[3]);
+
+		//convert to binary in ArrayBuffer
+		var buf = new ArrayBuffer(binStr.length);
+		var view = new Uint8Array(buf);
+		for(var i = 0; i < view.length; i++)
+			view[i] = binStr.charCodeAt(i);
+
+		var blob = new Blob([view], {'type': parts[1]});
+		var URL = webkitURL.createObjectURL(blob)
+		window.location = URL;
 	}
 
 	function updateCanvasSize() {
